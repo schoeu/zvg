@@ -8,7 +8,8 @@
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
 
- * The above copyright notice and this permission notice shall be included in all
+ * The above copyright notice and this permission notice shall be included in
+ all
  * copies or substantial portions of the Software.
 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -48,157 +49,135 @@
 #include "rapidjson/document.h"
 #include "tvgCommon.h"
 
-
 using namespace rapidjson;
 
 #define PARSE_FLAGS (kParseDefaultFlags | kParseInsituFlag)
 
-struct LookaheadParserHandler
-{
-    enum LookaheadParsingState {
-        kInit = 0,
-        kError,
-        kHasNull,
-        kHasBool,
-        kHasNumber,
-        kHasString,
-        kHasKey,
-        kEnteringObject,
-        kExitingObject,
-        kEnteringArray,
-        kExitingArray
-    };
+struct LookaheadParserHandler {
+  enum LookaheadParsingState {
+    kInit = 0,
+    kError,
+    kHasNull,
+    kHasBool,
+    kHasNumber,
+    kHasString,
+    kHasKey,
+    kEnteringObject,
+    kExitingObject,
+    kEnteringArray,
+    kExitingArray
+  };
 
-    Value                   val;
-    LookaheadParsingState   state = kInit;
-    Reader                  reader;
-    InsituStringStream      iss;
+  Value val;
+  LookaheadParsingState state = kInit;
+  Reader reader;
+  InsituStringStream iss;
 
-    LookaheadParserHandler(const char *str) : iss((char*)str)
-    {
-        reader.IterativeParseInit();
-    }
+  LookaheadParserHandler(const char *str) : iss((char *)str) {
+    reader.IterativeParseInit();
+  }
 
-    bool Null()
-    {
-        state = kHasNull;
-        val.SetNull();
-        return true;
-    }
+  bool Null() {
+    state = kHasNull;
+    val.SetNull();
+    return true;
+  }
 
-    bool Bool(bool b)
-    {
-        state = kHasBool;
-        val.SetBool(b);
-        return true;
-    }
+  bool Bool(bool b) {
+    state = kHasBool;
+    val.SetBool(b);
+    return true;
+  }
 
-    bool Int(int i)
-    {
-        state = kHasNumber;
-        val.SetInt(i);
-        return true;
-    }
+  bool Int(int i) {
+    state = kHasNumber;
+    val.SetInt(i);
+    return true;
+  }
 
-    bool Uint(unsigned u)
-    {
-        state = kHasNumber;
-        val.SetUint(u);
-        return true;
-    }
+  bool Uint(unsigned u) {
+    state = kHasNumber;
+    val.SetUint(u);
+    return true;
+  }
 
-    bool Int64(int64_t i)
-    {
-        state = kHasNumber;
-        val.SetInt64(i);
-        return true;
-    }
+  bool Int64(int64_t i) {
+    state = kHasNumber;
+    val.SetInt64(i);
+    return true;
+  }
 
-    bool Uint64(int64_t u)
-    {
-        state = kHasNumber;
-        val.SetUint64(u);
-        return true;
-    }
+  bool Uint64(int64_t u) {
+    state = kHasNumber;
+    val.SetUint64(u);
+    return true;
+  }
 
-    bool Double(double d)
-    {
-        state = kHasNumber;
-        val.SetDouble(d);
-        return true;
-    }
+  bool Double(double d) {
+    state = kHasNumber;
+    val.SetDouble(d);
+    return true;
+  }
 
-    bool RawNumber(const char *, SizeType, TVG_UNUSED bool)
-    { 
-        return false;
-    }
+  bool RawNumber(const char *, SizeType, TVG_UNUSED bool) { return false; }
 
-    bool String(const char *str, SizeType length, TVG_UNUSED bool)
-    {
-        state = kHasString;
-        val.SetString(str, length);
-        return true;
-    }
+  bool String(const char *str, SizeType length, TVG_UNUSED bool) {
+    state = kHasString;
+    val.SetString(str, length);
+    return true;
+  }
 
-    bool StartObject()
-    {
-        state = kEnteringObject;
-        return true;
-    }
+  bool StartObject() {
+    state = kEnteringObject;
+    return true;
+  }
 
-    bool Key(const char *str, SizeType length, TVG_UNUSED bool)
-    {
-        state = kHasKey;
-        val.SetString(str, length);
-        return true;
-    }
+  bool Key(const char *str, SizeType length, TVG_UNUSED bool) {
+    state = kHasKey;
+    val.SetString(str, length);
+    return true;
+  }
 
-    bool EndObject(SizeType)
-    {
-        state = kExitingObject;
-        return true;
-    }
+  bool EndObject(SizeType) {
+    state = kExitingObject;
+    return true;
+  }
 
-    bool StartArray()
-    {
-        state = kEnteringArray;
-        return true;
-    }
+  bool StartArray() {
+    state = kEnteringArray;
+    return true;
+  }
 
-    bool EndArray(SizeType)
-    {
-        state = kExitingArray;
-        return true;
-    }
+  bool EndArray(SizeType) {
+    state = kExitingArray;
+    return true;
+  }
 
-    void Error()
-    {
-        TVGERR("LOTTIE", "Invalid JSON: unexpected or misaligned data fields.");
-        state = kError;
-        reader.IterativeParseNext<PARSE_FLAGS>(iss, *this);   //something wrong but try advancement.
-    }
+  void Error() {
+    TVGERR("LOTTIE", "Invalid JSON: unexpected or misaligned data fields.");
+    state = kError;
+    reader.IterativeParseNext<PARSE_FLAGS>(
+        iss, *this); // something wrong but try advancement.
+  }
 
-    bool Invalid()
-    {
-        return state == kError;
-    }
+  bool Invalid() { return state == kError; }
 
-    bool enterObject();
-    bool enterArray();
-    bool nextArrayValue();
-    int getInt();
-    float getFloat();
-    const char* getString();
-    char* getStringCopy();
-    bool getBool();
-    void getNull();
-    bool parseNext();
-    const char* nextObjectKey();
-    void skip();
-    void skipOut(int depth);
-    int peekType();
-    bool isPrimitive();
-    char* getPos();
+  bool enterObject();
+  bool enterArray();
+  bool nextArrayValue();
+  int getInt();
+  float getFloat();
+  const char *getString();
+  char *getStringCopy();
+  bool getBool();
+  void getNull();
+  bool parseNext();
+  const char *nextObjectKey();
+  void skip();
+  void skipOut(int depth);
+  int peekType();
+  bool isPrimitive();
+  char *getPos();
 };
 
 #endif //_TVG_LOTTIE_PARSER_HANDLER_H_

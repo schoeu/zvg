@@ -8,7 +8,8 @@
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
 
- * The above copyright notice and this permission notice shall be included in all
+ * The above copyright notice and this permission notice shall be included in
+ all
  * copies or substantial portions of the Software.
 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -23,37 +24,30 @@
 #ifndef _TVG_LOTTIE_RENDER_POOLER_H_
 #define _TVG_LOTTIE_RENDER_POOLER_H_
 
-#include "tvgCommon.h"
 #include "tvgArray.h"
+#include "tvgCommon.h"
 #include "tvgPaint.h"
 
+template <typename T> struct LottieRenderPooler {
+  Array<T *> pooler;
 
-template<typename T>
-struct LottieRenderPooler
-{
-    Array<T*> pooler;
+  ~LottieRenderPooler() {
+    ARRAY_FOREACH(p, pooler) { (*p)->unref(); }
+  }
 
-    ~LottieRenderPooler()
-    {
-        ARRAY_FOREACH(p, pooler) {
-            (*p)->unref();
-        }
+  T *pooling(bool copy = false) {
+    // return available one.
+    ARRAY_FOREACH(p, pooler) {
+      if ((*p)->refCnt() == 1)
+        return *p;
     }
 
-    T* pooling(bool copy = false)
-    {
-        //return available one.
-        ARRAY_FOREACH(p, pooler) {
-            if ((*p)->refCnt() == 1) return *p;
-        }
-
-        //no empty, generate a new one.
-        auto p = copy ? static_cast<T*>(pooler[0]->duplicate()) : T::gen();
-        p->ref();
-        pooler.push(p);
-        return p;
-    }
+    // no empty, generate a new one.
+    auto p = copy ? static_cast<T *>(pooler[0]->duplicate()) : T::gen();
+    p->ref();
+    pooler.push(p);
+    return p;
+  }
 };
-
 
 #endif //_TVG_LOTTIE_RENDER_POOLER_H_
