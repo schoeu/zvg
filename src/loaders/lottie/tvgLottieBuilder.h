@@ -28,6 +28,7 @@
 #include "tvgShape.h"
 #include "tvgLottieExpressions.h"
 #include "tvgLottieModifier.h"
+#include "tvgLottieModel.h"
 
 struct LottieComposition;
 struct AssetResolver;

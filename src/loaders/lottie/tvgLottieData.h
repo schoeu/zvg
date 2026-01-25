@@ -81,8 +81,8 @@ struct TextDocument
 
     void copy(const TextDocument& rhs)
     {
-        text = duplicate(rhs.text);
-        name = duplicate(rhs.name);
+        if (rhs.text) text = strdup(rhs.text);
+        if (rhs.name) name = strdup(rhs.name);
     }
 };
 
