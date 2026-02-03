@@ -482,12 +482,14 @@ static LottieFont* parseFont(LottieComposition* comp, const Font* zFont)
 static LottieGroup* parseGroup(LottieComposition* comp, const ShapeGroup* zGroup)
 {
     auto group = new LottieGroup;
+
     if (zGroup->items()) {
         for (auto item : *zGroup->items()) {
             auto child = parseShape(comp, item);
             if (child) group->children.push(child);
         }
     }
+    group->prepare();
     return group;
 }
 
@@ -615,9 +617,13 @@ static LottieObject* parseShape(LottieComposition* comp, const ShapeItem* item)
 static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, const std::unordered_map<unsigned long, const Asset*>& assetMap)
 {
     auto layer = new LottieLayer;
+    static_cast<LottieObject*>(layer)->type = LottieObject::Layer;
     RGB32 color = {255, 255, 255};
     
-    if (zLayer->name()) layer->id = djb2(zLayer->name()->c_str());
+    if (zLayer->name()) {
+        layer->name = dupString(zLayer->name());
+        layer->id = djb2(zLayer->name()->c_str());
+    }
     layer->ix = zLayer->index();
     if (layer->ix == 0 && zLayer->id() != 0) layer->ix = static_cast<int16_t>(zLayer->id());
     layer->pix = zLayer->parent_id();
@@ -691,6 +697,8 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
                 if (it != assetMap.end()) {
                     layer->type = LottieLayer::Image;
                     const Asset* asset = it->second;
+                    layer->w = (float)asset->width();
+                    layer->h = (float)asset->height();
                     
                     auto image = new LottieImage;
                     image->bitmap.width = (float)asset->width();
@@ -743,9 +751,12 @@ bool LottieFlatBufferParser::parse()
     comp->h = movie->height();
     comp->frameRate = movie->frame_rate();
     comp->root = new LottieLayer; 
+    static_cast<LottieObject*>(comp->root)->type = LottieObject::Layer;
     comp->root->type = LottieLayer::Precomp;
     comp->root->inFrame = movie->in_point();
     comp->root->outFrame = movie->out_point();
+    comp->root->w = comp->w;
+    comp->root->h = comp->h;
     
     // Index Assets by ID for fast lookup
     std::unordered_map<unsigned long, const Asset*> assetMap;
@@ -771,8 +782,6 @@ bool LottieFlatBufferParser::parse()
             if (font) comp->fonts.push(font);
         }
     }
-    
-    // Parse Markers if present
     
     // Parse Markers if present
     if (movie->markers()) {

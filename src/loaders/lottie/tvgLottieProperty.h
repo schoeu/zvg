@@ -396,7 +396,6 @@ struct LottieGenericProperty : LottieProperty
         if (frameNo >= frames->last().no) return frames->last().value;
 
         auto key = _bsearch(frames, frameNo);
-        if (key >= frames->count) return frames->last().value;
         if (key + 1 >= frames->count) return frames->last().value;
         auto frame = frames->data + key;
         if (tvg::equal(frame->no, frameNo)) return frame->value;
@@ -878,33 +877,25 @@ struct LottieTextDoc : LottieProperty
 
     void release()
     {
-        Array<char*> freed;
-        auto freeOnce = [&freed](char*& ptr) {
-            if (!ptr) return;
-            ARRAY_FOREACH(p, freed) {
-                if (*p == ptr) {
-                    ptr = nullptr;
-                    return;
-                }
-            }
-            freed.push(ptr);
-            tvg::free(ptr);
-            ptr = nullptr;
-        };
-
         if (exp) {
             delete(exp);
             exp = nullptr;
         }
 
-        freeOnce(value.text);
-        freeOnce(value.name);
+        if (value.text) {
+            tvg::free(value.text);
+            value.text = nullptr;
+        }
+        if (value.name) {
+            tvg::free(value.name);
+            value.name = nullptr;
+        }
 
         if (!frames) return;
 
         ARRAY_FOREACH(p, *frames) {
-            freeOnce((*p).value.text);
-            freeOnce((*p).value.name);
+            tvg::free((*p).value.text);
+            tvg::free((*p).value.name);
         }
         delete(frames);
         frames = nullptr;

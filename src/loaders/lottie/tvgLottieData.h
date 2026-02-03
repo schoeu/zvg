@@ -53,6 +53,15 @@ struct ColorStop {
   }
 };
 
+static char* lottie_strdup(const char* str)
+{
+    if (!str) return nullptr;
+    auto len = strlen(str);
+    auto dup = (char*)malloc(len + 1);
+    if (dup) memcpy(dup, str, len + 1);
+    return dup;
+}
+
 struct TextDocument {
   char *text = nullptr;
   float height;
@@ -74,8 +83,8 @@ struct TextDocument {
   uint8_t caps = 0;     // 0: Regular, 1: AllCaps, 2: SmallCaps
 
   void copy(const TextDocument &rhs) {
-    text = duplicate(rhs.text);
-    name = duplicate(rhs.name);
+    text = lottie_strdup(rhs.text);
+    name = lottie_strdup(rhs.name);
   }
 };
 
