@@ -639,6 +639,9 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
         layer->transform = new LottieTransform;
         parseTransform(comp, layer->transform, zLayer->transform());
     }
+
+    if (zLayer->width() > 0) layer->w = (float)zLayer->width();
+    if (zLayer->height() > 0) layer->h = (float)zLayer->height();
     
     // Type specific
     switch (zLayer->type()) {
@@ -652,8 +655,8 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
                 auto it = assetMap.find(refIdHash);
                 if (it != assetMap.end()) {
                     const Asset* asset = it->second;
-                    layer->w = asset->width();
-                    layer->h = asset->height();
+                    if (layer->w <= 0) layer->w = asset->width();
+                    if (layer->h <= 0) layer->h = asset->height();
                     if (asset->layers()) {
                         for (auto zChild : *asset->layers()) {
                             auto child = parseLayer(comp, zChild, assetMap);
@@ -666,10 +669,11 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
         }
         case Zan::Data::LayerType_Solid: {
             layer->type = LottieLayer::Solid;
+            // Prefer specific solid dimensions if available, otherwise fallback to layer w/h
             float w = (float)zLayer->solid_width();
             float h = (float)zLayer->solid_height();
-            layer->w = w;
-            layer->h = h;
+            if (w > 0) layer->w = w;
+            if (h > 0) layer->h = h;
             color = hexToRGB255(zLayer->solid_color());
             break;
         }
