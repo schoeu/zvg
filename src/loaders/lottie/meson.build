@@ -2,10 +2,13 @@ if lottie_exp
     subdir('jerryscript')
 endif
 
+flatbuffers_dep = dependency('flatbuffers', required: true)
+
 source_file = [
    'tvgLottieBuilder.h',
    'tvgLottieData.h',
    'tvgLottieExpressions.h',
+   'tvgLottieFlatBufferParser.h',
    'tvgLottieInterpolator.h',
    'tvgLottieLoader.h',
    'tvgLottieModel.h',
@@ -17,6 +20,7 @@ source_file = [
    'tvgLottieAnimation.cpp',
    'tvgLottieBuilder.cpp',
    'tvgLottieExpressions.cpp',
+   'tvgLottieFlatBufferParser.cpp',
    'tvgLottieInterpolator.cpp',
    'tvgLottieLoader.cpp',
    'tvgLottieModel.cpp',
@@ -27,6 +31,7 @@ source_file = [
 
 subloader_dep += [declare_dependency(
     include_directories : include_directories('.'),
+    dependencies : [flatbuffers_dep],
     sources : source_file
 )]
 

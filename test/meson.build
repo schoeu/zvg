@@ -8,6 +8,17 @@ test_dep = []
 if host_machine.system() == 'darwin'
     test_dep += declare_dependency(link_args: ['-framework', 'Cocoa', '-framework', 'IOKit'])
 endif
+test_dep += dependency('flatbuffers', required: true)
+test_dep += common_dep
+test_dep += utils_dep
+test_dep += subloader_dep
+test_dep += saver_dep
+
+test_headers = headers + [
+    include_directories('../src/common'),
+    include_directories('../src/renderer'),
+    include_directories('../src/loaders/lottie/jerryscript/jerry-core/include')
+]
 
 test_file = [
     'testAccessor.cpp',
@@ -28,7 +39,7 @@ test_file = [
 
 tests = executable('tvgUnitTests',
     test_file,
-    include_directories : headers,
+    include_directories : test_headers,
     link_with : thorvg_lib,
     cpp_args : test_compiler_flags,
     dependencies : test_dep)
