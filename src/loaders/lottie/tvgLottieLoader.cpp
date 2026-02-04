@@ -43,97 +43,7 @@ LottieCustomSlot::~LottieCustomSlot() {
 
 
 
-// 输出日志静态方法
-// 前置声明
-static void dumpObject(std::stringstream& ss, LottieObject* obj, int indent);
 
-static std::string ind(int count) {
-    return std::string(count * 2, ' ');
-}
-
-static void dumpLayer(std::stringstream& ss, LottieLayer* layer, int indent) {
-    if (!layer) return;
-    
-    ss << ind(indent) << "{\n";
-    ss << ind(indent+1) << "\"_class\": \"LottieLayer\",\n";
-    ss << ind(indent+1) << "\"id\": " << layer->id << ",\n";
-    if (layer->name) ss << ind(indent+1) << "\"name\": \"" << layer->name << "\",\n";
-    ss << ind(indent+1) << "\"type\": " << (int)layer->type << ",\n"; 
-    if (layer->rid) ss << ind(indent+1) << "\"rid\": " << layer->rid << ",\n";
-    ss << ind(indent+1) << "\"pix\": " << layer->pix << ",\n"; 
-    ss << ind(indent+1) << "\"ix\": " << layer->ix << ",\n"; 
-    ss << ind(indent+1) << "\"w\": " << layer->w << ", \"h\": " << layer->h << ",\n";
-
-    if (layer->children.count > 0) {
-        ss << ind(indent+1) << "\"children\": [\n";
-        for (uint32_t i = 0; i < layer->children.count; ++i) {
-            dumpObject(ss, layer->children[i], indent + 2);
-            if (i < layer->children.count - 1) ss << ",";
-            ss << "\n";
-        }
-        ss << ind(indent+1) << "]\n";
-    }
-    ss << ind(indent) << "}";
-}
-
-static void dumpObject(std::stringstream& ss, LottieObject* obj, int indent) {
-    if (!obj) return;
-    
-    if (obj->type == LottieObject::Layer) {
-        dumpLayer(ss, static_cast<LottieLayer*>(obj), indent);
-        return;
-    }
-    ss << ind(indent) << "{\n";
-    
-    const char* className = "LottieObject";
-    if (obj->type == LottieObject::Group) className = "LottieGroup";
-    else if (obj->type == LottieObject::Rect) className = "LottieRect";
-    else if (obj->type == LottieObject::Ellipse) className = "LottieEllipse";
-    else if (obj->type == LottieObject::SolidFill) className = "LottieSolidFill";
-    else if (obj->type == LottieObject::SolidStroke) className = "LottieSolidStroke";
-    else if (obj->type == LottieObject::GradientFill) className = "LottieGradientFill";
-    else if (obj->type == LottieObject::GradientStroke) className = "LottieGradientStroke";
-    else if (obj->type == LottieObject::Trimpath) className = "LottieTrimpath";
-    else if (obj->type == LottieObject::Transform) className = "LottieTransform";
-
-    ss << ind(indent+1) << "\"_class\": \"" << className << "\",\n";
-    ss << ind(indent+1) << "\"type\": " << (int)obj->type << ",\n"; 
-
-    if (obj->type == LottieObject::Group) {
-        auto group = static_cast<LottieGroup*>(obj);
-        if (group->children.count > 0) {
-            ss << ind(indent+1) << "\"children\": [\n";
-            for (uint32_t i = 0; i < group->children.count; ++i) {
-                dumpObject(ss, group->children[i], indent + 2);
-                if (i < group->children.count - 1) ss << ",";
-                ss << "\n";
-            }
-            ss << ind(indent+1) << "]\n";
-        }
-    }
-    
-    ss << ind(indent) << "}";
-}
-
-// 主入口
-void dumpComposition(LottieComposition* comp) {
-    if (!comp) return;
-    std::stringstream ss;
-    ss << "{\n";
-    ss << "  \"w\": " << comp->w << ",\n";
-    ss << "  \"h\": " << comp->h << ",\n";
-    ss << "  \"fr\": " << comp->frameRate << ",\n";
-    ss << "  \"version\": \"" << (comp->version ? comp->version : "null") << "\",\n";
-    ss << "  \"root\": ";
-    dumpLayer(ss, comp->root, 1);
-    printf("comp->root后: %p\n", comp->root);
-    ss << "\n}\n";
-    
-    // 一次性输出，避免多线程 Log 混乱
-    std::cout << "[[COMP_DUMP_START]]" << std::endl;
-    std::cout << ss.str() << std::endl;
-    std::cout << "[[COMP_DUMP_END]]" << std::endl;
-}
 
 
 bool LottieLoader::prepare() {
@@ -143,14 +53,10 @@ bool LottieLoader::prepare() {
       {
         ScopedLock lock(key);
         comp = fbParser.comp;
-
-        // 【添加这一行】Dump ZFB 结果
-        printf("DUMPING ZFB COMPOSITION:\n");
-        dumpComposition(comp); 
+        fromZFB = true;
       }
       if (!comp) return false;
       builder->build(comp);
-      release();
       return true;
     }
   }
@@ -161,9 +67,6 @@ bool LottieLoader::prepare() {
   {
     ScopedLock lock(key);
     comp = parser.comp;
-    // 【添加这一行】Dump JSON 结果
-        printf("DUMPING JSON COMPOSITION:\n");
-        dumpComposition(comp); 
   }
   if (!comp)
     return false;
@@ -203,9 +106,9 @@ LottieLoader::LottieLoader()
 LottieLoader::~LottieLoader() {
   done();
 
+  if (comp && fromZFB) LottieFlatBufferParser::invalidateStrings(comp);
   release();
 
-  // TODO: correct position?
   delete (comp);
   delete (builder);
 

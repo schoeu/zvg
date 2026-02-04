@@ -1003,8 +1003,8 @@ struct LottieLayer : LottieGroup
 
     struct {
         float frameNo = -1.0f;
-        Matrix matrix;
-        uint8_t opacity;
+        Matrix matrix = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        uint8_t opacity = 255;
     } cache;
 
     MaskMethod matteType = MaskMethod::None;
@@ -1137,8 +1137,8 @@ struct LottieComposition
     LottieLayer* root = nullptr;
     char* version = nullptr;
     char* name = nullptr;
-    float w, h;
-    float frameRate;
+    float w = 0.0f, h = 0.0f;
+    float frameRate = 60.0f;
     Array<LottieObject*> assets;
     Array<LottieInterpolator*> interpolators;
     Array<LottieFont*> fonts;

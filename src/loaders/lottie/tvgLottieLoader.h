@@ -67,6 +67,7 @@ public:
 
     Key key;
     char* dirName = nullptr;            //base resource directory
+    bool fromZFB = false;               //true if composition is created from flatbuffers
 
     bool copy = false;                  //"content" is owned by this loader
     bool build = true;                  //require building the lottie scene

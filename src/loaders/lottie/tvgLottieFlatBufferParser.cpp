@@ -39,19 +39,13 @@ static RGB32 toRGB255(const Zan::Data::Color* c)
 static char* dupString(const flatbuffers::String* str)
 {
     if (!str) return nullptr;
-    auto len = str->size();
-    auto out = tvg::malloc<char>(len + 1);
-    memcpy(out, str->c_str(), len);
-    out[len] = 0;
-    return out;
+    return const_cast<char*>(str->c_str());
 }
 
 static char* dupStringOrEmpty(const flatbuffers::String* str)
 {
-    if (str) return dupString(str);
-    auto out = tvg::malloc<char>(1);
-    out[0] = 0;
-    return out;
+    if (str) return const_cast<char*>(str->c_str());
+    return nullptr;
 }
 
 static Point toPoint(const Vec2* v)
@@ -366,7 +360,7 @@ static void parseGradientStops(LottieGradient* grad, const flatbuffers::Vector<f
         grad->colorStops.value.data[i].r = (uint8_t)(stop->color()->r() * 255);
         grad->colorStops.value.data[i].g = (uint8_t)(stop->color()->g() * 255);
         grad->colorStops.value.data[i].b = (uint8_t)(stop->color()->b() * 255);
-        grad->colorStops.value.data[i].a = 255;
+        grad->colorStops.value.data[i].a = stop->alpha();
     }
 }
 
@@ -460,14 +454,10 @@ static LottieFont* parseFont(LottieComposition* comp, const Font* zFont)
     font->ascent = zFont->ascent();
     font->origin = (LottieFont::Origin)zFont->origin();
     if (zFont->b64src() && zFont->b64src()->size() > 0) {
-        auto size = zFont->b64src()->size();
-        font->b64src = tvg::malloc<char>(size);
-        memcpy(font->b64src, zFont->b64src()->Data(), size);
-        font->size = size;
+        font->b64src = (char*)zFont->b64src()->Data();
+        font->size = zFont->b64src()->size();
     } else if (zFont->path()) {
-        auto len = zFont->path()->size();
-        font->path = tvg::malloc<char>(len + 1);
-        memcpy(font->path, zFont->path()->c_str(), len + 1);
+        font->path = (char*)zFont->path()->c_str();
     }
     if (zFont->chars()) {
         for (auto zGlyph : *zFont->chars()) {
@@ -712,13 +702,11 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
                     if (asset->buffer() && asset->buffer()->size() > 0) {
                         auto data = (const char*)asset->buffer()->Data();
                         auto size = asset->buffer()->size();
-                        if (image->bitmap.picture->load(data, size, "", "", true) == tvg::Result::Success) {
+                        if (image->bitmap.picture->load(data, size, "", "", false) == tvg::Result::Success) {
                              image->resolved = true;
                         }
                     } else if (asset->path()) {
-                        auto len = asset->path()->size();
-                        image->bitmap.path = tvg::malloc<char>(len + 1);
-                        memcpy(image->bitmap.path, asset->path()->c_str(), len + 1);
+                        image->bitmap.path = (char*)asset->path()->c_str();
                     }
                     
                     layer->children.push(image);
@@ -791,7 +779,7 @@ bool LottieFlatBufferParser::parse()
     if (movie->markers()) {
         for (auto zMarker : *movie->markers()) {
             auto marker = new LottieMarker;
-            if (zMarker->name()) marker->name = strdup(zMarker->name()->c_str());
+            if (zMarker->name()) marker->name = (char*)zMarker->name()->c_str();
             marker->time = zMarker->time();
             marker->duration = zMarker->duration();
             comp->markers.push(marker);
@@ -800,4 +788,65 @@ bool LottieFlatBufferParser::parse()
 
     comp->root->prepare();
     return true;
+}
+
+static void invalidateObject(LottieObject* obj)
+{
+    if (!obj) return;
+    
+    if (obj->type == LottieObject::Layer) {
+        auto layer = static_cast<LottieLayer*>(obj);
+        layer->name = nullptr;
+        ARRAY_FOREACH(p, layer->children) invalidateObject(*p);
+    } else if (obj->type == LottieObject::Group) {
+        auto group = static_cast<LottieGroup*>(obj);
+        ARRAY_FOREACH(p, group->children) invalidateObject(*p);
+    } else if (obj->type == LottieObject::Text) {
+        auto text = static_cast<LottieText*>(obj);
+        text->doc.value.text = nullptr;
+        text->doc.value.name = nullptr;
+        if (text->doc.frames) {
+            ARRAY_FOREACH(p, *text->doc.frames) {
+                (*p).value.text = nullptr;
+                (*p).value.name = nullptr;
+            }
+        }
+    } else if (obj->type == LottieObject::Image) {
+        auto image = static_cast<LottieImage*>(obj);
+        image->bitmap.path = nullptr;
+    }
+}
+
+void LottieFlatBufferParser::invalidateStrings(LottieComposition* comp)
+{
+    if (!comp) return;
+    
+    comp->name = nullptr;
+    comp->version = nullptr;
+    
+    // Fonts
+    ARRAY_FOREACH(p, comp->fonts) {
+        (*p)->name = nullptr;
+        (*p)->family = nullptr;
+        (*p)->style = nullptr;
+        (*p)->b64src = nullptr; // union with path
+        ARRAY_FOREACH(g, (*p)->chars) {
+            (*g)->code = nullptr;
+            (*g)->family = nullptr;
+            (*g)->style = nullptr;
+        }
+    }
+    
+    // Markers
+    ARRAY_FOREACH(p, comp->markers) {
+        (*p)->name = nullptr;
+    }
+    
+    // Root Layer (and its children)
+    invalidateObject(comp->root);
+    
+    // Assets
+    ARRAY_FOREACH(p, comp->assets) {
+         invalidateObject(*p);
+    }
 }
