@@ -309,10 +309,10 @@ struct Paint::Impl
     bool intersects(const RenderRegion& region);
     RenderRegion bounds();
     bool bounds(Point* pt4, const Matrix* pm, bool obb);
+    Paint* duplicate(Paint* ret);
     Iterator* iterator();
     RenderData update(RenderMethod* renderer, const Matrix& pm, Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag pFlag, bool clipper = false);
     bool render(RenderMethod* renderer);
-    Paint* duplicate(Paint* ret = nullptr);
 };
 
 }

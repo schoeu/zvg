@@ -335,11 +335,11 @@ static void parsePathSet(LottiePathSet& pathSet, const PathData* zPath)
     }
 }
 
-static void parsePathProperty(LottiePath* tPath, const PathProperty* zProp)
+static void parsePathProperty(LottiePathSet& pathSet, const PathProperty* zProp)
 {
     if (!zProp) return;
     
-    parsePathSet(tPath->pathset, zProp->static_value());
+    parsePathSet(pathSet, zProp->static_value());
 
     if (zProp->keyframes() && zProp->keyframes()->size() > 0) {
         // TODO: Implement path animation if needed
@@ -360,7 +360,7 @@ static void parseGradientStops(LottieGradient* grad, const flatbuffers::Vector<f
         grad->colorStops.value.data[i].r = (uint8_t)(stop->color()->r() * 255);
         grad->colorStops.value.data[i].g = (uint8_t)(stop->color()->g() * 255);
         grad->colorStops.value.data[i].b = (uint8_t)(stop->color()->b() * 255);
-        grad->colorStops.value.data[i].a = stop->alpha();
+        grad->colorStops.value.data[i].a = (uint8_t)stop->alpha();
     }
 }
 
@@ -581,7 +581,7 @@ static LottieObject* parseShape(LottieComposition* comp, const ShapeItem* item)
         case ShapeContent_ShapePath: {
             auto zPath = item->content_as_ShapePath();
             auto path = new LottiePath;
-            parsePathProperty(path, zPath->path());
+            parsePathProperty(path->pathset, zPath->path());
             obj = path;
             break;
         }
@@ -602,6 +602,52 @@ static LottieObject* parseShape(LottieComposition* comp, const ShapeItem* item)
     }
     
     return obj;
+}
+
+static LottieMask* parseMask(LottieComposition* comp, const Zan::Data::Mask* zMask)
+{
+    if (!zMask) return nullptr;
+    auto mask = new LottieMask;
+    mask->method = (MaskMethod)zMask->mode();
+    mask->inverse = zMask->inv();
+    parseOpacity(comp, mask->opacity, zMask->opacity());
+    parsePathProperty(mask->pathset, zMask->path());
+    return mask;
+}
+
+static void resolveParents(LottieLayer* parentLayer)
+{
+    if (!parentLayer || parentLayer->children.count == 0) return;
+
+    std::unordered_map<int16_t, LottieLayer*> map;
+    
+    // First pass: populate map
+    ARRAY_FOREACH(p, parentLayer->children) {
+        if ((*p)->type == LottieObject::Layer) {
+            auto layer = static_cast<LottieLayer*>(*p);
+            if (layer->ix >= 0) map[layer->ix] = layer;
+        }
+    }
+    
+    // Second pass: link parents and recurse
+    ARRAY_FOREACH(p, parentLayer->children) {
+        if ((*p)->type == LottieObject::Layer) {
+            auto layer = static_cast<LottieLayer*>(*p);
+            
+            // Link Parent
+            if (layer->pix != -1) {
+                auto it = map.find(layer->pix);
+                if (it != map.end()) {
+                    layer->parent = it->second;
+                }
+            }
+            
+            // Recurse if Precomp (has children)
+            if (layer->children.count > 0) {
+                resolveParents(layer);
+            }
+        }
+    }
 }
 
 static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, const std::unordered_map<unsigned long, const Asset*>& assetMap)
@@ -633,6 +679,18 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
     if (zLayer->width() > 0) layer->w = (float)zLayer->width();
     if (zLayer->height() > 0) layer->h = (float)zLayer->height();
     
+    // Masks
+    if (zLayer->masks()) {
+        for (auto zMask : *zLayer->masks()) {
+            auto mask = parseMask(comp, zMask);
+            if (mask) layer->masks.push(mask);
+        }
+    }
+    
+    // Matte
+    layer->matteType = (MaskMethod)zLayer->matte();
+    layer->matteSrc = zLayer->matte_src();
+
     // Type specific
     switch (zLayer->type()) {
         case Zan::Data::LayerType_Precomp: {
@@ -786,6 +844,7 @@ bool LottieFlatBufferParser::parse()
         }
     }
 
+    resolveParents(comp->root);
     comp->root->prepare();
     return true;
 }

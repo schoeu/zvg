@@ -64,20 +64,20 @@ static char* lottie_strdup(const char* str)
 
 struct TextDocument {
   char *text = nullptr;
-  float height = 0.0f;
-  float shift = 0.0f;
-  RGB32 color = {0, 0, 0};
+  float height;
+  float shift;
+  RGB32 color;
   struct {
-    Point pos = {0.0f, 0.0f};
-    Point size = {0.0f, 0.0f};
+    Point pos;
+    Point size{};
   } bbox;
   struct {
-    RGB32 color = {0, 0, 0};
-    float width = 0.0f;
+    RGB32 color;
+    float width;
     bool below = false;
   } stroke;
   char *name = nullptr;
-  float size = 0.0f;
+  float size;
   float tracking = 0.0f;
   float justify = 0.0f; // horizontal alignment
   uint8_t caps = 0;     // 0: Regular, 1: AllCaps, 2: SmallCaps

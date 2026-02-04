@@ -380,7 +380,7 @@ bool Paint::intersects(int32_t x, int32_t y, int32_t w, int32_t h) noexcept
 
 Paint* Paint::duplicate() const noexcept
 {
-    return pImpl->duplicate();
+    return pImpl->duplicate(nullptr);
 }
 
 
