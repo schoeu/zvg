@@ -26,6 +26,7 @@
 #include "tvgLottieParser.h"
 #include "tvgLottieBuilder.h"
 #include "tvgCompressor.h"
+#include "tvgLottieFlatBufferParser.h"
 
 /************************************************************************/
 /* Internal Class Implementation                                        */
@@ -41,6 +42,21 @@ LottieCustomSlot::~LottieCustomSlot()
 
 bool LottieLoader::prepare()
 {
+    // Try ZFB first
+    if (size > 4) {
+        LottieFlatBufferParser fbParser(content, size, dirName);
+        if (fbParser.parse()) {
+            {
+                ScopedLock lock(key);
+                comp = fbParser.comp;
+            }
+            if (!comp) return false;
+            builder->build(comp);
+            release();
+            return true;
+        }
+    }
+
     LottieParser parser(content, dirName, builder->expressions());
     if (!parser.parse()) return false;
     {
