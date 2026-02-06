@@ -37,6 +37,8 @@ struct LottieFlatBufferParser
         : data(data), size(size), dirName(dirName), comp(nullptr) {}
 
     bool parse();
+    
+    static void invalidateStrings(LottieComposition* comp);
 };
 
 #endif //_TVG_LOTTIE_FLATBUFFER_PARSER_H_
