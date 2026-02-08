@@ -1010,7 +1010,8 @@ struct LottieLayer : LottieGroup
     MaskMethod matteType = MaskMethod::None;
     Type type = Null;
     bool autoOrient = false;
-    bool matteSrc = false;
+    int32_t matteSrc = 0;
+    bool ddd = false;
 
     LottieEffect* effectById(unsigned long id)
     {

@@ -1557,6 +1557,11 @@ static bool _buildComposition(LottieComposition* comp, LottieLayer* parent)
 
         //attach the necessary font data
         if (child->type == LottieLayer::Text) _attachFont(comp, child);
+
+        // TODO
+        if (child->type == LottieLayer::Precomp && child->children.count > 0) {
+            _buildComposition(comp, child);
+        }
     }
     return true;
 }

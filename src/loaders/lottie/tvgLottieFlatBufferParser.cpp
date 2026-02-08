@@ -548,17 +548,14 @@ static LottieObject* parseShape(LottieComposition* comp, const ShapeItem* item)
             stroke->cap = (StrokeCap)zStroke->cap();
             stroke->join = (StrokeJoin)zStroke->join();
             stroke->miterLimit = zStroke->miter_limit();
-            // TODO: Enable dash support when ZFB schema is updated
-            /*
-            if (zStroke->dash_array() && zStroke->dash_array()->size() > 0) {
-                for (auto zDash : *zStroke->dash_array()) {
-                    parseFloat(comp, stroke->dashValue(), zDash);
+
+            if (zStroke->dash_array()) {
+                for (uint32_t i = 0; i < zStroke->dash_array()->size(); ++i) {
+                    parseFloat(comp, stroke->dashValue(), zStroke->dash_array()->Get(i));
                 }
             }
-            if (zStroke->dash_offset()) {
-                parseFloat(comp, stroke->dashOffset(), zStroke->dash_offset());
-            }
-            */
+            parseFloat(comp, stroke->dashOffset(), zStroke->dash_offset());
+
             obj = stroke;
             break;
         }
@@ -585,17 +582,15 @@ static LottieObject* parseShape(LottieComposition* comp, const ShapeItem* item)
             stroke->cap = (StrokeCap)zGrad->cap();
             stroke->join = (StrokeJoin)zGrad->join();
             stroke->miterLimit = zGrad->miter_limit();
-            // TODO: Enable dash support when ZFB schema is updated
-            /*
-            if (zGrad->dash_array() && zGrad->dash_array()->size() > 0) {
-                for (auto zDash : *zGrad->dash_array()) {
-                    parseFloat(comp, stroke->dashValue(), zDash);
+            
+            if (zGrad->dash_array()) {
+                for (uint32_t i = 0; i < zGrad->dash_array()->size(); ++i) {
+                    parseFloat(comp, stroke->dashValue(), zGrad->dash_array()->Get(i));
                 }
             }
-            if (zGrad->dash_offset()) {
-                parseFloat(comp, stroke->dashOffset(), zGrad->dash_offset());
-            }
-            */
+            parseFloat(comp, stroke->dashOffset(), zGrad->dash_offset());
+
+            stroke->colorStops.populated = false;
             parseGradientStops(stroke, zGrad->stops());
             obj = stroke;
             break;
@@ -644,6 +639,10 @@ static LottieObject* parseShape(LottieComposition* comp, const ShapeItem* item)
     if (obj) {
         if (item->name()) obj->id = djb2(item->name()->c_str());
         obj->hidden = item->hidden();
+        if (obj->hidden) {
+            delete(obj);
+            obj = nullptr;
+        }
     }
     
     return obj;
@@ -680,6 +679,7 @@ static LottieMask* parseMask(LottieComposition* comp, const Zan::Data::Mask* zMa
     mask->method = getMaskMethod(zMask->mode(), mask->inverse);
     parseOpacity(comp, mask->opacity, zMask->opacity());
     parsePathProperty(comp, mask->pathset, zMask->path());
+    parseFloat(comp, mask->expand, zMask->expand());
     return mask;
 }
 
@@ -798,6 +798,11 @@ static LottieEffect* parseEffect(LottieComposition* comp, const Effect* zEffect)
         if (zEffect->name()) {
              auto nameStr = zEffect->name()->c_str();
              effect->nm = djb2(nameStr);
+        }
+        if (zEffect->match_name()) {
+             auto matchNameStr = zEffect->match_name()->c_str();
+             effect->mn = djb2(matchNameStr);
+        } else {
              effect->mn = effect->nm;
         }
         effect->type = type;
@@ -817,11 +822,12 @@ static MaskMethod getMatteType(int type)
     }
 }
 
-static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, const std::unordered_map<unsigned long, const Asset*>& assetMap)
+static LottieLayer* parseLayer(LottieComposition* comp, LottieLayer* parent, const Layer* zLayer, const std::unordered_map<unsigned long, const Asset*>& assetMap)
 {
     auto layer = new LottieLayer;
     static_cast<LottieObject*>(layer)->type = LottieObject::Layer;
     RGB32 color = {255, 255, 255};
+    layer->comp = parent;
     
     if (zLayer->name()) {
         layer->name = dupString(zLayer->name());
@@ -856,11 +862,13 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
     
     // Matte
     layer->matteType = getMatteType(zLayer->matte());
-    layer->matteSrc = zLayer->matte_src();
+    layer->mix = zLayer->matte_parent();
     
     layer->hidden = zLayer->hidden();
-    layer->mix = zLayer->matte_parent();
+    layer->matteSrc = zLayer->matte_src();
     layer->autoOrient = zLayer->auto_orient();
+    parseFloat(comp, layer->timeRemap, zLayer->time_remap());
+    layer->ddd = zLayer->ddd();
 
     // Effects
     if (zLayer->effects()) {
@@ -886,7 +894,7 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
                     if (layer->h <= 0) layer->h = asset->height();
                     if (asset->layers()) {
                         for (auto zChild : *asset->layers()) {
-                            auto child = parseLayer(comp, zChild, assetMap);
+                            auto child = parseLayer(comp, layer, zChild, assetMap);
                             layer->children.push(child);
                         }
                     }
@@ -943,7 +951,12 @@ static LottieLayer* parseLayer(LottieComposition* comp, const Layer* zLayer, con
                              image->resolved = true;
                         }
                     } else if (asset->path()) {
-                        image->bitmap.path = (char*)asset->path()->c_str();
+                        if (asset->folder() && asset->folder()->size() > 0) {
+                             std::string p = asset->folder()->str() + asset->path()->str();
+                             image->bitmap.path = tvg::duplicate(p.c_str());
+                        } else {
+                             image->bitmap.path = dupString(asset->path());
+                        }
                     }
                     
                     layer->children.push(image);
@@ -1001,7 +1014,7 @@ bool LottieFlatBufferParser::parse()
     // Parse Root Layers
     if (movie->layers()) {
         for (auto zLayer : *movie->layers()) {
-            auto layer = parseLayer(comp, zLayer, assetMap);
+            auto layer = parseLayer(comp, comp->root, zLayer, assetMap);
             comp->root->children.push(layer);
         }
     }
@@ -1028,7 +1041,4 @@ bool LottieFlatBufferParser::parse()
     comp->root->prepare();
     return true;
 }
-
-
-
 
