@@ -67,20 +67,14 @@ Result Canvas::add(Paint* target, Paint* at) noexcept
 
 Result Canvas::draw(bool clear) noexcept
 {
-    TVGLOG("RENDERER", "Draw S. -------------------------------- Canvas(%p)", this);
     auto ret = pImpl->draw(clear);
-    TVGLOG("RENDERER", "Draw E. -------------------------------- Canvas(%p)", this);
-
     return ret;
 }
 
 
 Result Canvas::update() noexcept
 {
-    TVGLOG("RENDERER", "Update S. ------------------------------ Canvas(%p)", this);
     auto ret = pImpl->update();
-    TVGLOG("RENDERER", "Update E. ------------------------------ Canvas(%p)", this);
-
     return ret;
 }
 
