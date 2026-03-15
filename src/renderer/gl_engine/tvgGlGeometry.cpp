@@ -25,6 +25,108 @@
 #include "tvgGlRenderTask.h"
 #include "tvgGlTessellator.h"
 
+enum class PathKind : uint8_t
+{
+    None,
+    Rect,
+    Circle,
+    RoundRectCW,
+    RoundRectCCW
+};
+
+template<size_t N>
+static inline bool _matchCommandPattern(const Array<PathCommand>& cmds, const PathCommand (&pattern)[N])
+{
+    constexpr auto count = static_cast<uint32_t>(N);
+
+    if (cmds.count != count) return false;
+    auto data = cmds.data;
+    // `count` is a compile-time constant.
+    for (uint32_t i = 0; i < count; ++i)
+        if (data[i] != pattern[i]) return false;
+    return true;
+}
+
+template<size_t N>
+static inline bool _matchPrimitivePattern(const RenderPath& path, const PathCommand (&pattern)[N], uint32_t pointCount)
+{
+    if (path.pts.count != pointCount) return false;
+    return _matchCommandPattern(path.cmds, pattern);
+}
+
+static PathKind _pathKind(const RenderPath& path)
+{
+    static constexpr uint32_t RECT_POINT_COUNT = 4;
+    static constexpr uint32_t RECT_CMD_COUNT = 5;
+    static constexpr uint32_t CIRCLE_POINT_COUNT = 13;
+    static constexpr uint32_t CIRCLE_CMD_COUNT = 6;
+    static constexpr uint32_t ROUND_RECT_POINT_COUNT = 17;
+    static constexpr uint32_t ROUND_RECT_CMD_COUNT = 10;
+
+    static constexpr PathCommand RECT_CMDS[] = {PathCommand::MoveTo, PathCommand::LineTo, PathCommand::LineTo, PathCommand::LineTo, PathCommand::Close};
+    static constexpr PathCommand CIRCLE_CMDS[] = {PathCommand::MoveTo, PathCommand::CubicTo, PathCommand::CubicTo, PathCommand::CubicTo, PathCommand::CubicTo, PathCommand::Close};
+    static constexpr PathCommand ROUND_RECT_CW_CMDS[] = {PathCommand::MoveTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::Close};
+    static constexpr PathCommand ROUND_RECT_CCW_CMDS[] = {PathCommand::MoveTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::CubicTo, PathCommand::LineTo, PathCommand::Close};
+
+    switch (path.cmds.count) {
+        case RECT_CMD_COUNT:
+            return _matchPrimitivePattern(path, RECT_CMDS, RECT_POINT_COUNT) ? PathKind::Rect : PathKind::None;
+        case CIRCLE_CMD_COUNT:
+            return _matchPrimitivePattern(path, CIRCLE_CMDS, CIRCLE_POINT_COUNT) ? PathKind::Circle : PathKind::None;
+        case ROUND_RECT_CMD_COUNT: {
+            if (path.pts.count != ROUND_RECT_POINT_COUNT) return PathKind::None;
+            if (_matchCommandPattern(path.cmds, ROUND_RECT_CW_CMDS)) return PathKind::RoundRectCW;
+            if (_matchCommandPattern(path.cmds, ROUND_RECT_CCW_CMDS)) return PathKind::RoundRectCCW;
+            return PathKind::None;  // Unknown pattern: convexity check keeps fixed CCW winding (-1), no auto-detect.
+        }
+        default: break;
+    }
+    return PathKind::None;  // Unknown pattern: convexity check keeps fixed CCW winding (-1), no auto-detect.
+}
+
+static inline int8_t _orient(const Point& a, const Point& b, const Point& c)
+{
+    auto value = tvg::cross(b - a, c - a);
+    if (tvg::zero(value)) return 0;
+    return (value > 0.0f) ? 1 : -1;
+}
+
+// If control polygon edges P0-P1 and P2-P3 cross, the cubic can loop.
+static inline bool _edgesCross(const Point& p0, const Point& p1, const Point& p2, const Point& p3)
+{
+    auto straddlesLine = [](const Point& a, const Point& b, const Point& c, const Point& d) {
+        return _orient(a, b, c) * _orient(a, b, d) < 0;
+    };
+    return straddlesLine(p0, p1, p2, p3) && straddlesLine(p2, p3, p0, p1);
+}
+
+// Round-rect corners are cubic segments. A crossing control polygon can make a loop.
+static bool _rrCubicLoop(const RenderPath& path, PathKind kind)
+{
+    if (kind != PathKind::RoundRectCW && kind != PathKind::RoundRectCCW) return false;
+    auto pts = path.pts.data;
+    if (kind == PathKind::RoundRectCW) return _edgesCross(pts[1], pts[2], pts[3], pts[4]) || _edgesCross(pts[5], pts[6], pts[7], pts[8]) || _edgesCross(pts[9], pts[10], pts[11], pts[12]) || _edgesCross(pts[13], pts[14], pts[15], pts[16]);
+    return _edgesCross(pts[0], pts[1], pts[2], pts[3]) || _edgesCross(pts[4], pts[5], pts[6], pts[7]) || _edgesCross(pts[8], pts[9], pts[10], pts[11]) || _edgesCross(pts[12], pts[13], pts[14], pts[15]);
+}
+
+static RenderRegion _transformBounds(const RenderRegion& bounds, const Matrix& matrix)
+{
+    if (bounds.invalid()) return bounds;
+
+    auto lt = Point{float(bounds.min.x), float(bounds.min.y)} * matrix;
+    auto lb = Point{float(bounds.min.x), float(bounds.max.y)} * matrix;
+    auto rt = Point{float(bounds.max.x), float(bounds.min.y)} * matrix;
+    auto rb = Point{float(bounds.max.x), float(bounds.max.y)} * matrix;
+
+    auto left = min(min(lt.x, lb.x), min(rt.x, rb.x));
+    auto top = min(min(lt.y, lb.y), min(rt.y, rb.y));
+    auto right = max(max(lt.x, lb.x), max(rt.x, rb.x));
+    auto bottom = max(max(lt.y, lb.y), max(rt.y, rb.y));
+
+    return RenderRegion{{int32_t(floor(left)), int32_t(floor(top))}, {int32_t(ceil(right)), int32_t(ceil(bottom))}};
+}
+
+
 bool GlIntersector::isPointInTriangle(const Point& p, const Point& a, const Point& b, const Point& c)
 {
     auto d1 = tvg::cross(p - a, p - b);
@@ -89,7 +191,7 @@ bool GlIntersector::intersectClips(const Point& pt, const tvg::Array<tvg::Render
 {
     for (uint32_t i = 0; i < clips.count; i++) {
         auto clip = (GlShape*)clips[i];
-        if (!isPointInMesh(pt, clip->geometry.fill, clip->geometry.matrix)) return false;
+        if (!isPointInMesh(pt, clip->geometry.fill, clip->geometry.fillWorld ? tvg::identity() : clip->geometry.matrix)) return false;
     }
     return true;
 }
@@ -106,8 +208,8 @@ bool GlIntersector::intersectShape(const RenderRegion region, const GlShape* sha
             Point pt{(float)x + region.min.x, (float)y + region.min.y};
             if (y % 2 == 1) pt.y = (float)sizeY - y - sizeY % 2 + region.min.y;
             if (intersectClips(pt, shape->clips)) {
-                if (shape->validFill && isPointInMesh(pt, shape->geometry.fill, shape->geometry.matrix)) return true;
-                if (shape->validStroke && isPointInTris(pt, shape->geometry.stroke, shape->geometry.matrix)) return true;
+                if (shape->validFill && isPointInMesh(pt, shape->geometry.fill, shape->geometry.fillWorld ? tvg::identity() : shape->geometry.matrix)) return true;
+                if (shape->validStroke && isPointInTris(pt, shape->geometry.stroke, tvg::identity())) return true;
             }
         }
     }
@@ -124,9 +226,7 @@ bool GlIntersector::intersectImage(const RenderRegion region, const GlShape* ima
             for (int32_t x = 0; x <= sizeX; x++) {
                 Point pt{(float) x + region.min.x, (float) y + region.min.y};
                 if (y % 2 == 1) pt.y = (float) sizeY - y - sizeY % 2 + region.min.y;
-                if (intersectClips(pt, image->clips)) {
-                    if (isPointInImage(pt, image->geometry.fill, image->geometry.matrix)) return true;
-                }
+                if (intersectClips(pt, image->clips) && isPointInImage(pt, image->geometry.fill, image->geometry.fillWorld ? tvg::identity() : image->geometry.matrix)) return true;
             }
         }
     }
@@ -136,31 +236,39 @@ bool GlIntersector::intersectImage(const RenderRegion region, const GlShape* ima
 
 void GlGeometry::prepare(const RenderShape& rshape)
 {
+    optPathThin = false;
     if (rshape.trimpath()) {
         RenderPath trimmedPath;
         if (rshape.stroke->trim.trim(rshape.path, trimmedPath)) {
-            trimmedPath.optimize(optPath, matrix);
+            trimmedPath.optimize(optPath, matrix, optPathThin);
         } else {
             optPath.clear();
         }
-    } else rshape.path.optimize(optPath, matrix);
+    } else {
+        rshape.path.optimize(optPath, matrix, optPathThin);
+    }
 }
 
 
 bool GlGeometry::tesselateShape(const RenderShape& rshape, float* opacityMultiplier)
 {
     fill.clear();
+    fillBounds = {};
+    fillWorld = true;
     convex = false;
 
     // When the CTM scales a filled path so small that its device-space
     // World:  [========]     // normal-sized filled path
     // After CTM:  [.]        // thinner than 1 px in device space
-    // Handling: two points   // collapse to a 2-point handle for stability
-    if (optPath.pts.count == 2 && tvg::zero(rshape.strokeWidth())) {
-        if (tesselateLine(optPath)) {
+    // Handling: stroke tess  // use thin-path stroke tessellation for stability
+    if (optPathThin && tvg::zero(rshape.strokeWidth())) {
+        if (tesselateThinPath(optPath)) {
             // The time spent is similar to substituting buffers in tessellation, so we just move the buffers to keep the code simple.
             stroke.index.move(fill.index);
             stroke.vertex.move(fill.vertex);
+            fillBounds = strokeBounds;
+            strokeBounds = {};
+            strokeRenderWidth = 0.0f;
             if (opacityMultiplier) *opacityMultiplier = MIN_GL_STROKE_ALPHA;
             fillRule = rshape.rule;
             return true;
@@ -168,24 +276,29 @@ bool GlGeometry::tesselateShape(const RenderShape& rshape, float* opacityMultipl
         return false;
     }
 
+    auto kind = _pathKind(optPath);
+    auto defaultWinding = int8_t(kind != PathKind::None ? 0 : -1);
     // Handle normal shapes with more than 2 points
     BWTessellator bwTess{&fill};
-    bwTess.tessellate(optPath, matrix);
+    bwTess.tessellate(optPath, defaultWinding);
     fillRule = rshape.rule;
-    bounds = bwTess.bounds();
+    fillBounds = bwTess.bounds();
     convex = bwTess.convex;
+    if (defaultWinding == 0 && convex && _rrCubicLoop(optPath, kind)) convex = false;
     if (opacityMultiplier) *opacityMultiplier = 1.0f;
     return true;
 }
 
 
-bool GlGeometry::tesselateLine(const RenderPath& path)
+bool GlGeometry::tesselateThinPath(const RenderPath& path)
 {
     stroke.clear();
-    if (path.pts.count != 2) return false;
-    Stroker stroker(&stroke, MIN_GL_STROKE_WIDTH / scaling(matrix), StrokeCap::Butt, StrokeJoin::Bevel);
-    stroker.run(path, matrix);
-    bounds = stroker.bounds();
+    strokeBounds = {};
+    strokeRenderWidth = MIN_GL_STROKE_WIDTH;
+    if (path.pts.count < 2) return false;
+    Stroker stroker(&stroke, MIN_GL_STROKE_WIDTH, StrokeCap::Butt, StrokeJoin::Bevel);
+    stroker.run(path);
+    strokeBounds = stroker.bounds();
     return true;
 }
 
@@ -193,6 +306,9 @@ bool GlGeometry::tesselateLine(const RenderPath& path)
 bool GlGeometry::tesselateStroke(const RenderShape& rshape)
 {
     stroke.clear();
+    strokeBounds = {};
+    strokeRenderWidth = 0.0f;
+
     auto strokeWidth = 0.0f;
     if (isinf(matrix.e11)) {
         strokeWidth = rshape.strokeWidth() * scaling(matrix);
@@ -201,11 +317,18 @@ bool GlGeometry::tesselateStroke(const RenderShape& rshape)
     } else {
         strokeWidth = rshape.strokeWidth();
     }
+    auto strokeWidthWorld = strokeWidth * scaling(matrix);
+    if (!std::isfinite(strokeWidthWorld)) strokeWidthWorld = strokeWidth;
+
     //run stroking only if it's valid
-    if (!tvg::zero(strokeWidth)) {
-        Stroker stroker(&stroke, strokeWidth, rshape.strokeCap(), rshape.strokeJoin());
-        stroker.run(rshape, optPath, matrix);
-        bounds = stroker.bounds();
+
+    if (!tvg::zero(strokeWidthWorld)) {
+        Stroker stroker(&stroke, strokeWidthWorld, rshape.strokeCap(), rshape.strokeJoin(), rshape.strokeMiterlimit());
+        RenderPath dashedPathWorld;
+        if (rshape.strokeDash(dashedPathWorld, &matrix)) stroker.run(dashedPathWorld);
+        else stroker.run(optPath);
+        strokeBounds = stroker.bounds();
+        strokeRenderWidth = strokeWidthWorld;
         return true;
     }
     return false;
@@ -215,38 +338,28 @@ bool GlGeometry::tesselateStroke(const RenderShape& rshape)
 void GlGeometry::tesselateImage(const RenderSurface* image)
 {
     fill.clear();
+    fillBounds = {};
+    fillWorld = true;
+    strokeRenderWidth = 0.0f;
     fill.vertex.reserve(5 * 4);
     fill.index.reserve(6);
 
-    auto left = 0.f;
-    auto top = 0.f;
-    auto right = float(image->w);
-    auto bottom = float(image->h);
+    auto leftTop = Point{0.f, 0.f} * matrix;
+    auto leftBottom = Point{0.f, float(image->h)} * matrix;
+    auto rightTop = Point{float(image->w), 0.f} * matrix;
+    auto rightBottom = Point{float(image->w), float(image->h)} * matrix;
 
-    // left top point
-    fill.vertex.push(left);
-    fill.vertex.push(top);
+    auto appendVertex = [&](const Point& pt, float u, float v) {
+        fill.vertex.push(pt.x);
+        fill.vertex.push(pt.y);
+        fill.vertex.push(u);
+        fill.vertex.push(v);
+    };
 
-    fill.vertex.push(0.f);
-    fill.vertex.push(1.f);
-    // left bottom point
-    fill.vertex.push(left);
-    fill.vertex.push(bottom);
-
-    fill.vertex.push(0.f);
-    fill.vertex.push(0.f);
-    // right top point
-    fill.vertex.push(right);
-    fill.vertex.push(top);
-
-    fill.vertex.push(1.f);
-    fill.vertex.push(1.f);
-    // right bottom point
-    fill.vertex.push(right);
-    fill.vertex.push(bottom);
-
-    fill.vertex.push(1.f);
-    fill.vertex.push(0.f);
+    appendVertex(leftTop, 0.f, 1.f);
+    appendVertex(leftBottom, 0.f, 0.f);
+    appendVertex(rightTop, 1.f, 1.f);
+    appendVertex(rightBottom, 1.f, 0.f);
 
     fill.index.push(0);
     fill.index.push(1);
@@ -256,7 +369,7 @@ void GlGeometry::tesselateImage(const RenderSurface* image)
     fill.index.push(1);
     fill.index.push(3);
 
-    bounds = {{0, 0}, {int32_t(image->w), int32_t(image->h)}};
+    fillBounds = _transformBounds(RenderRegion{{0, 0}, {int32_t(image->w), int32_t(image->h)}}, matrix);
 }
 
 
@@ -270,7 +383,6 @@ bool GlGeometry::draw(GlRenderTask* task, GlStageBuffer* gpuBuffer, RenderUpdate
     auto vertexOffset = gpuBuffer->push(buffer->vertex.data, buffer->vertex.count * sizeof(float));
     auto indexOffset = gpuBuffer->pushIndex(buffer->index.data, buffer->index.count * sizeof(uint32_t));
 
-    // vertex layout
     if (flag & RenderUpdateFlag::Image) {
         // image has two attribute: [pos, uv]
         task->addVertexLayout(GlVertexLayout{0, 2, 4 * sizeof(float), vertexOffset});
@@ -299,20 +411,28 @@ GlStencilMode GlGeometry::getStencilMode(RenderUpdateFlag flag)
 
 RenderRegion GlGeometry::getBounds() const
 {
-    if (tvg::identity(&matrix)) return bounds;
+    auto bounds = RenderRegion{};
+    auto hasBounds = false;
 
-    auto lt = Point{float(bounds.min.x), float(bounds.min.y)} * matrix;
-    auto lb = Point{float(bounds.min.x), float(bounds.max.y)} * matrix;
-    auto rt = Point{float(bounds.max.x), float(bounds.min.y)} * matrix;
-    auto rb = Point{float(bounds.max.x), float(bounds.max.y)} * matrix;
+    if (!fill.index.empty()) {
+        auto fill = fillWorld ? fillBounds : _transformBounds(fillBounds, matrix);
+        if (fill.valid()) {
+            bounds = fill;
+            hasBounds = true;
+        }
+    }
 
-    auto left = min(min(lt.x, lb.x), min(rt.x, rb.x));
-    auto top = min(min(lt.y, lb.y), min(rt.y, rb.y));
-    auto right = max(max(lt.x, lb.x), max(rt.x, rb.x));
-    auto bottom = max(max(lt.y, lb.y), max(rt.y, rb.y));
+    if (!stroke.index.empty()) {
+        auto stroke = strokeBounds;
+        if (stroke.valid()) {
+            if (hasBounds) bounds.add(stroke);
+            else {
+                bounds = stroke;
+                hasBounds = true;
+            }
+        }
+    }
 
-    auto bounds = RenderRegion {{int32_t(floor(left)), int32_t(floor(top))}, {int32_t(ceil(right)), int32_t(ceil(bottom))}};
-    if (bounds.valid()) return bounds;
-    return this->bounds;
-
+    if (hasBounds) return bounds;
+    return {};
 }

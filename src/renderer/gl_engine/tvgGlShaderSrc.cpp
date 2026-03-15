@@ -26,47 +26,42 @@
 
 const char* COLOR_VERT_SHADER = TVG_COMPOSE_SHADER(
     uniform float uDepth;                                           \n
+    uniform mat3 uViewMatrix;                                       \n
     layout(location = 0) in vec2 aLocation;                         \n
-    layout(std140) uniform Matrix {                                 \n
-        mat3 transform;                                             \n
-    } uMatrix;                                                      \n
-                                                                    \n
-    void main()                                                     \n
+    layout(location = 1) in vec4 aColor;                            \n
+    out vec4 vColor;                                                \n
+                                                                    \n 
+    void main()                                                     \n 
     {                                                               \n
-        vec3 pos = uMatrix.transform * vec3(aLocation, 1.0);        \n
+        vec3 pos = uViewMatrix * vec3(aLocation, 1.0);              \n
         gl_Position = vec4(pos.xy, uDepth, 1.0);                    \n
-    }                                                               \n
-);
+        vColor = aColor;                                            \n
+    }                                                               \n);
 
 const char* COLOR_FRAG_SHADER = TVG_COMPOSE_SHADER(
-    layout(std140) uniform ColorInfo {                       \n
-        vec4 solidColor;                                     \n
-    } uColorInfo;                                            \n
+    in vec4 vColor;                                          \n
     out vec4 FragColor;                                      \n
-                                                             \n
-    void main()                                              \n
+                                                             \n 
+    void main()                                              \n 
     {                                                        \n
-       vec4 uColor = uColorInfo.solidColor;                  \n
-       FragColor =  vec4(uColor.rgb * uColor.a, uColor.a);   \n
-    }                                                        \n
-);
+        vec4 uColor = vColor;                                \n
+        FragColor = vec4(uColor.rgb * uColor.a, uColor.a);   \n
+    }                                                        \n);
 
 const char* GRADIENT_VERT_SHADER = TVG_COMPOSE_SHADER(
     uniform float uDepth;                                                           \n
+    uniform mat3 uViewMatrix;                                                       \n
     layout(location = 0) in vec2 aLocation;                                         \n
     out vec2 vPos;                                                                  \n
-    layout(std140) uniform Matrix {                                                 \n
-        mat3 transform;                                                             \n
-    } uMatrix;                                                                      \n
-    layout(std140) uniform InvMatrix {                                              \n
-        mat3 transform;                                                             \n
-    } uInvMatrix;                                                                   \n
+    layout(std140) uniform TransformInfo {                                          \n
+        mat3 invTransform;                                                          \n
+    } uTransformInfo;                                                               \n
                                                                                     \n
     void main()                                                                     \n
     {                                                                               \n
-        vec3 glPos = uMatrix.transform * vec3(aLocation, 1.0);                      \n
+        vec3 glPos = uViewMatrix * vec3(aLocation, 1.0);                            \n
         gl_Position = vec4(glPos.xy, uDepth, 1.0);                                  \n
-        vec3 pos =  uInvMatrix.transform * vec3(aLocation, 1.0);                    \n
+        vec3 pos =  uTransformInfo.invTransform * vec3(aLocation, 1.0);             \n
         vPos = pos.xy;                                                              \n
     }                                                                               \n
 );
@@ -323,17 +318,15 @@ const char* STR_RADIAL_GRADIENT_FUNCTIONS = TVG_COMPOSE_SHADER(
 
 const char* IMAGE_VERT_SHADER = TVG_COMPOSE_SHADER(
     uniform float uDepth;                                                                   \n
+    uniform mat3 uViewMatrix;                                                               \n
     layout (location = 0) in vec2 aLocation;                                                \n
     layout (location = 1) in vec2 aUV;                                                      \n
-    layout (std140) uniform Matrix {                                                        \n
-        mat3 transform;                                                                     \n
-    } uMatrix;                                                                              \n
     out vec2 vUV;                                                                           \n
                                                                                             \n
     void main()                                                                             \n
     {                                                                                       \n
         vUV = aUV;                                                                          \n
-        vec3 pos = uMatrix.transform * vec3(aLocation, 1.0);                                \n
+        vec3 pos = uViewMatrix * vec3(aLocation, 1.0);                                     \n
         gl_Position = vec4(pos.xy, uDepth, 1.0);                                            \n
     }                                                                                       \n
 );
@@ -549,14 +542,12 @@ const char* MASK_LIGHTEN_FRAG_SHADER = TVG_COMPOSE_SHADER(
 
 const char* STENCIL_VERT_SHADER = TVG_COMPOSE_SHADER(
     uniform float uDepth;                                           \n
+    uniform mat3 uViewMatrix;                                       \n
     layout(location = 0) in vec2 aLocation;                         \n
-    layout(std140) uniform Matrix {                                 \n
-        mat3 transform;                                             \n
-    } uMatrix;                                                      \n
                                                                     \n
     void main()                                                     \n
     {                                                               \n
-        vec3 pos = uMatrix.transform * vec3(aLocation, 1.0);        \n
+        vec3 pos = uViewMatrix * vec3(aLocation, 1.0);              \n
         gl_Position = vec4(pos.xy, uDepth, 1.0);                    \n
     });
 
@@ -592,17 +583,21 @@ const char* BLIT_FRAG_SHADER = TVG_COMPOSE_SHADER(
     }
 );
 
+// SW parity map for blend sources:
+// - Solid shape: SW calls blender(srcPremul, dst) directly.
+//   Keep premultiplied source and bypass postProcess.
+// - Gradient shape: SW first does src-over (opBlendPreNormal), then blender(tmp, dst).
+//   Build equivalent tmp in getFragData() by pre-mixing with dst, then bypass postProcess.
+// - Image/Scene: SW uses blender(unpremul(src), dst), then interpolates by src alpha/opacity.
+//   Keep unpremultiplied source + postProcess mix for these headers.
 const char* BLEND_SHAPE_SOLID_FRAG_HEADER = R"(
-layout(std140) uniform ColorInfo {
-    vec4 solidColor;
-} uColorInfo;
-
 layout(std140) uniform BlendRegion {
     vec4 region;
 } uBlendRegion;
 
 uniform sampler2D uDstTexture;
 
+in vec4 vColor;
 out vec4 FragColor;
 
 vec3 One = vec3(1.0, 1.0, 1.0);
@@ -611,16 +606,16 @@ FragData d;
 
 void getFragData() {
     vec2 uv = (gl_FragCoord.xy - uBlendRegion.region.xy) / uBlendRegion.region.zw;
-    vec4 colorSrc = uColorInfo.solidColor;
+    vec4 colorSrc = vColor;
     vec4 colorDst = texture(uDstTexture, uv);
-    d.Sc = colorSrc.rgb;
+    d.Sc = colorSrc.rgb * colorSrc.a;
     d.Sa = colorSrc.a;
     d.So = 1.0;
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
 }
 
-vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+vec4 postProcess(vec4 R) { return R; }
 )";
 
 const char* BLEND_SHAPE_LINEAR_FRAG_HEADER = R"(
@@ -647,9 +642,12 @@ void getFragData() {
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
     if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+    float srcOpacity = d.Sa * d.So;
+    d.Sc = mix(d.Dc, d.Sc, srcOpacity);
+    d.Sa = mix(d.Da, 1.0, srcOpacity);
 }
 
-vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+vec4 postProcess(vec4 R) { return R; }
 )";
 
 const char* BLEND_SHAPE_RADIAL_FRAG_HEADER = R"(
@@ -676,11 +674,79 @@ void getFragData() {
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
     if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+    float srcOpacity = d.Sa * d.So;
+    d.Sc = mix(d.Dc, d.Sc, srcOpacity);
+    d.Sa = mix(d.Da, 1.0, srcOpacity);
+}
+
+vec4 postProcess(vec4 R) { return R; }
+)";
+
+// GL keeps a viewport-sized dst copy, so src/dst can share vUV.
+// GLES/WebGL must keep a full resolved dst copy because MSAA resolve/blit is only valid for the
+// full buffer there; down-blitting into a smaller FBO would add another full copy pass. Rebuild
+// dst UV from gl_FragCoord + BlendRegion instead of reusing vUV.
+#if defined(THORVG_GL_TARGET_GL)
+const char* BLEND_IMAGE_FRAG_HEADER = R"(
+uniform sampler2D uSrcTexture;
+uniform sampler2D uDstTexture;
+
+in vec2 vUV;
+out vec4 FragColor;
+
+vec3 One = vec3(1.0, 1.0, 1.0);
+struct FragData { vec3 Sc; float Sa; float So; vec3 Dc; float Da; };
+FragData d;
+
+void getFragData() {
+    // get source data
+    vec4 colorSrc = texture(uSrcTexture, vUV);
+    vec4 colorDst = texture(uDstTexture, vUV);
+    // fill fragment data
+    d.Sc = colorSrc.rgb;
+    d.Sa = colorSrc.a;
+    d.So = 1.0;
+    d.Dc = colorDst.rgb;
+    d.Da = colorDst.a;
+    if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
 }
 
 vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
 )";
 
+const char* BLEND_SCENE_FRAG_HEADER = R"(
+layout(std140) uniform ColorInfo {
+    int format;
+    int flipY;
+    int opacity;
+    int dummy;
+} uColorInfo;
+uniform sampler2D uSrcTexture;
+uniform sampler2D uDstTexture;
+
+in vec2 vUV;
+out vec4 FragColor;
+
+vec3 One = vec3(1.0, 1.0, 1.0);
+struct FragData { vec3 Sc; float Sa; float So; vec3 Dc; float Da; };
+FragData d;
+
+void getFragData() {
+    // get source data
+    vec4 colorSrc = texture(uSrcTexture, vUV);
+    vec4 colorDst = texture(uDstTexture, vUV);
+    // fill fragment data
+    d.Sc = colorSrc.rgb;
+    d.Sa = colorSrc.a;
+    d.So = float(uColorInfo.opacity) / 255.0;
+    d.Dc = colorDst.rgb;
+    d.Da = colorDst.a;
+    if (d.Sa > 0.0) {d.Sc = d.Sc / d.Sa; }
+}
+
+vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+)";
+#else
 const char* BLEND_IMAGE_FRAG_HEADER = R"(
 layout(std140) uniform BlendRegion {
     vec4 region;
@@ -751,6 +817,7 @@ void getFragData() {
 
 vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
 )";
+#endif
 
 const char* BLEND_FRAG_HSL = R"(
 // RGB to HSL conversion
@@ -1197,3 +1264,5 @@ void main()
     FragColor = tmp * orig.a;
 } 
 )";
+
+#undef TVG_COMPOSE_SHADER

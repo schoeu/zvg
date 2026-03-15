@@ -8,8 +8,7 @@
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
 
- * The above copyright notice and this permission notice shall be included in
- all
+ * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -25,81 +24,112 @@
 #define _TVG_LOTTIE_COMMON_
 
 #include "tvgArray.h"
-#include "tvgCommon.h"
-#include <cmath>
+#include "tvgMath.h"
 
-struct PathSet {
-  Point *pts = nullptr;
-  PathCommand *cmds = nullptr;
-  uint16_t ptsCnt = 0;
-  uint16_t cmdsCnt = 0;
+namespace tvg
+{
+
+struct PathSet
+{
+    Point* pts = nullptr;
+    PathCommand* cmds = nullptr;
+    uint16_t ptsCnt = 0;
+    uint16_t cmdsCnt = 0;
 };
 
-struct RGB32 {
-  int32_t r, g, b;
+
+struct RGB32
+{
+    int32_t r, g, b;
 };
 
-struct ColorStop {
-  Fill::ColorStop *data = nullptr;
-  Array<float> *input = nullptr;
 
-  void copy(const ColorStop &rhs, uint32_t cnt) {
-    if (rhs.data) {
-      data = tvg::malloc<Fill::ColorStop>(sizeof(Fill::ColorStop) * cnt);
-      memcpy(data, rhs.data, sizeof(Fill::ColorStop) * cnt);
+struct ColorStop
+{
+    Fill::ColorStop* data = nullptr;
+    Array<float>* input = nullptr;
+
+    void copy(const ColorStop& rhs, uint32_t cnt)
+    {
+        if (rhs.data) {
+            data = tvg::malloc<Fill::ColorStop>(sizeof(Fill::ColorStop) * cnt);
+            memcpy(data, rhs.data, sizeof(Fill::ColorStop) * cnt);
+        }
+        if (rhs.input) TVGERR("LOTTIE", "Must be populated!");
     }
-    if (rhs.input)
-      TVGERR("LOTTIE", "Must be populated!");
-  }
 };
 
-struct TextDocument {
-  char *text = nullptr;
-  float height;
-  float shift;
-  RGB32 color;
-  struct {
-    Point pos;
-    Point size{};
-  } bbox;
-  struct {
+
+struct TextDocument
+{
+    char* text = nullptr;
+    float height;
+    float shift;
     RGB32 color;
-    float width;
-    bool below = false;
-  } stroke;
-  char *name = nullptr;
-  float size;
-  float tracking = 0.0f;
-  float justify = 0.0f; // horizontal alignment
-  uint8_t caps = 0;     // 0: Regular, 1: AllCaps, 2: SmallCaps
+    struct {
+        Point pos;
+        Point size{};
+    } bbox;
+    struct {
+        RGB32 color;
+        float width;
+        bool below = false;
+    } stroke;
+    char* name = nullptr;
+    float size;
+    float tracking = 0.0f;
+    float justify = 0.0f;    //horizontal alignment
+    uint8_t caps = 0;        //0: Regular, 1: AllCaps, 2: SmallCaps
 
-  void copy(const TextDocument &rhs) {
-    text = duplicate(rhs.text);
-    name = duplicate(rhs.name);
-  }
+    void copy(const TextDocument& rhs)
+    {
+        text = duplicate(rhs.text);
+        name = duplicate(rhs.name);
+    }
 };
 
-struct Tween {
-  float frameNo = 0.0f;
-  float progress = 0.0f; // greater than 0 and smaller than 1
-  bool active = false;
+
+struct Tween
+{
+    float frameNo = 0.0f;
+    float progress = 0.0f;  //greater than 0 and smaller than 1
+    bool active = false;
 };
 
-static inline int32_t REMAP255(float val) {
-  return (int32_t)nearbyintf(val * 255.0f);
+
+static inline int32_t REMAP255(float val)
+{
+    return (int32_t)nearbyintf(val * 255.0f);
 }
 
-static inline RGB32 operator-(const RGB32 &lhs, const RGB32 &rhs) {
-  return {lhs.r - rhs.r, lhs.g - rhs.g, lhs.b - rhs.b};
+
+static inline RGB32 operator-(const RGB32& lhs, const RGB32& rhs)
+{
+    return {lhs.r - rhs.r, lhs.g - rhs.g, lhs.b - rhs.b};
 }
 
-static inline RGB32 operator+(const RGB32 &lhs, const RGB32 &rhs) {
-  return {lhs.r + rhs.r, lhs.g + rhs.g, lhs.b + rhs.b};
+
+static inline RGB32 operator+(const RGB32& lhs, const RGB32& rhs)
+{
+    return {lhs.r + rhs.r, lhs.g + rhs.g, lhs.b + rhs.b};
 }
 
-static inline RGB32 operator*(const RGB32 &lhs, float rhs) {
-  return {(int32_t)nearbyintf(lhs.r * rhs), (int32_t)nearbyintf(lhs.g * rhs),
-          (int32_t)nearbyintf(lhs.b * rhs)};
+
+static inline RGB32 operator*(const RGB32& lhs, float rhs)
+{
+    return {(int32_t)nearbyintf(lhs.r * rhs), (int32_t)nearbyintf(lhs.g * rhs), (int32_t)nearbyintf(lhs.b * rhs)};
+}
+
+
+static inline RGB32 lerp(const RGB32& s, const RGB32& e, float t)
+{
+    return {
+        tvg::clamp((int32_t)(s.r + (e.r - s.r) * t), 0, 255),
+        tvg::clamp((int32_t)(s.g + (e.g - s.g) * t), 0, 255),
+        tvg::clamp((int32_t)(s.b + (e.b - s.b) * t), 0, 255)
+    };
+}
+
 }
 
 #endif //_TVG_LOTTIE_COMMON_

@@ -1,16 +1,16 @@
 /*
- * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
-
+ * Copyright (c) 2024 the ThorVG project. All rights reserved.
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
-
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
-
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -20,27 +20,23 @@
  * SOFTWARE.
  */
 
-#ifndef _TVG_WG_GEOMETRY_H_
-#define _TVG_WG_GEOMETRY_H_
+#ifndef _TVG_LOTTIE_FLATBUFFER_PARSER_H_
+#define _TVG_LOTTIE_FLATBUFFER_PARSER_H_
 
-#include <cassert>
-#include "tvgMath.h"
-#include "tvgArray.h"
+#include "tvgCommon.h"
+#include "tvgLottieModel.h"
 
-struct WgMeshData {
-    Array<Point> vbuffer;
-    Array<Point> tbuffer;
-    Array<uint32_t> ibuffer;
-    size_t voffset{};
-    size_t toffset{};
-    size_t ioffset{};
+struct LottieFlatBufferParser
+{
+    const char* data;
+    size_t size;
+    const char* dirName;
+    LottieComposition* comp;
 
-    void bbox(const Point pmin, const Point pmax);
-    void imageBox(float w, float h, const Matrix& transform);
-    void blitBox();
-    void clear();
+    LottieFlatBufferParser(const char* data, size_t size, const char* dirName)
+        : data(data), size(size), dirName(dirName), comp(nullptr) {}
 
-    bool invalid() { return vbuffer.empty(); }
+    bool parse();
 };
 
-#endif // _TVG_WG_GEOMETRY_H_
+#endif //_TVG_LOTTIE_FLATBUFFER_PARSER_H_
